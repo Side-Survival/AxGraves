@@ -83,6 +83,10 @@
             <id>jitpack.io</id>
             <url>https://jitpack.io</url>
         </repository>
+        <repository>
+            <id>xenondevs</id>
+            <url>https://repo.xenondevs.xyz/releases</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -104,6 +108,26 @@
             <artifactId>bstats-bukkit</artifactId>
             <version>3.1.0</version>
             <scope>compile</scope>
+        </dependency>
+        <!-- InvUI core library (docs-based GUI system) -->
+        <dependency>
+            <groupId>xyz.xenondevs.invui</groupId>
+            <artifactId>invui-core</artifactId>
+            <version>1.49</version>
+        </dependency>
+        <!-- Vault API for paid grave teleports (soft, provided by server) -->
+        <dependency>
+            <groupId>com.github.MilkBowl</groupId>
+            <artifactId>VaultAPI</artifactId>
+            <version>1.7.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Existing InvUI BOM (kept for potential future modules) -->
+        <dependency>
+            <groupId>xyz.xenondevs.invui</groupId>
+            <artifactId>invui</artifactId>
+            <version>1.49</version>
+            <type>pom</type>
         </dependency>
     </dependencies>
 

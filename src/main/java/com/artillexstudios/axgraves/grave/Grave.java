@@ -67,7 +67,7 @@ public class Grave {
             if (BlacklistUtils.isBlacklisted(it)) return true;
             return false;
         });
-        items.replaceAll(ItemStack::clone); // clone all items
+        items.replaceAll(ItemStack::clone);
 
         this.location = LocationUtils.getCenterOf(loc, true, false);
         this.player = offlinePlayer;
@@ -93,6 +93,7 @@ public class Grave {
 
         this.entity = NMSHandlers.getNmsHandler().createEntity(EntityType.ARMOR_STAND, location.clone().add(0, 1 + CONFIG.getFloat("head-height", -1.2f), 0));
         entity.setItem(EquipmentSlot.HELMET, WrappedItemStack.wrap(Utils.getPlayerHead(offlinePlayer)));
+
         final ArmorStandMeta meta = (ArmorStandMeta) entity.meta();
         meta.small(true);
         meta.invisible(true);
@@ -221,6 +222,10 @@ public class Grave {
             meta.alignment(TextDisplayMeta.Alignment.valueOf(section.getString("alignment").toUpperCase()));
             meta.backgroundColor(Integer.parseInt(section.getString("background-color"), 16));
             meta.lineWidth(1000);
+            if (section.getBoolean("shadow")) {
+                meta.shadow(true);
+            }
+            meta.viewRange(section.getFloat("view-range"));
             meta.billboardConstrain(DisplayMeta.BillboardConstrain.valueOf(section.getString("billboard").toUpperCase()));
         });
 
