@@ -47,7 +47,7 @@ auto-rotation:
 
 # true: only the person who died and people with axgraves.admin can open the grave
 # false: everyone can open the grave
-interact-only-own: false
+interact-only-own: true
 
 # should the player lose any xp on death?
 # this is a percentage, so 0.5 would be 50% xp

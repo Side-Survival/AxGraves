@@ -1,5 +1,6 @@
 package com.artillexstudios.axgraves.gui;
 
+import com.artillexstudios.axapi.utils.PaperUtils;
 import com.artillexstudios.axapi.utils.StringUtils;
 import com.artillexstudios.axgraves.grave.Grave;
 import com.artillexstudios.axgraves.grave.SpawnedGraves;
@@ -7,6 +8,8 @@ import com.artillexstudios.axgraves.utils.LimitUtils;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -34,8 +37,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static com.artillexstudios.axgraves.AxGraves.CONFIG;
-import static com.artillexstudios.axgraves.AxGraves.EXECUTOR;
 import static com.artillexstudios.axgraves.AxGraves.MESSAGEUTILS;
+import static com.artillexstudios.axgraves.AxGraves.getInstance;
 
 public final class GravesGui {
 
@@ -275,7 +278,7 @@ public final class GravesGui {
         }
 
         eco.withdrawPlayer(player, amount);
-
+ 
         String paidMsg = StringUtils.formatToString(
             "&#55FF55You paid &a" + String.format(Locale.US, "%.2f", amount) + " &#55FF55for grave teleport."
         );
@@ -301,16 +304,19 @@ public final class GravesGui {
     }
 
     private static void startWarmup(@NotNull Player player, @NotNull Location target, double price, int warmupSeconds) {
+        player.closeInventory();
+
         if (warmupSeconds <= 0) {
             if (!withdraw(player, price)) return;
-            player.teleport(target);
+            loadChunksAround(target);
+            PaperUtils.teleportAsync(player, target);
             return;
         }
 
         UUID uuid = player.getUniqueId();
-        // cancel existing warmup if any
         PendingTeleport old = PENDING_TELEPORTS.remove(uuid);
-        if (old != null) {
+        if (old != null && old.warmupTask != null) {
+            old.warmupTask.cancel();
             old.cancelled = true;
         }
 
@@ -318,46 +324,61 @@ public final class GravesGui {
         PendingTeleport pending = new PendingTeleport(target, price, System.currentTimeMillis(), warmupSeconds, startLoc);
         PENDING_TELEPORTS.put(uuid, pending);
 
-        EXECUTOR.execute(() -> {
-            player.closeInventory();
-            try {
-                int lastAnnounced = warmupSeconds;
-                String secondsText = StringUtils.formatToString("&#FFAAFFTeleporting in &f" + warmupSeconds + " &7seconds. Don't move!");
-                player.sendMessage(secondsText);
+        String initialMsg = StringUtils.formatToString("&#FFAAFFTeleporting in &f" + warmupSeconds + " &7seconds. Don't move!");
+        player.sendMessage(initialMsg);
 
-                while (!pending.cancelled) {
-                    long elapsed = (System.currentTimeMillis() - pending.startTime) / 1000L;
-                    int remaining = pending.warmupSeconds - (int) elapsed;
-
-                    if (remaining != lastAnnounced && remaining > 0) {
-                        lastAnnounced = remaining;
-                        String msg = StringUtils.formatToString("&#FFAAFFTeleporting in &f" + remaining + " &7seconds. Don't move!");
-                        player.sendMessage(msg);
-                    }
-
-                    if (elapsed >= pending.warmupSeconds) {
-                        if (!withdraw(player, price)) {
-                            PENDING_TELEPORTS.remove(uuid);
-                            return;
-                        }
-                        player.teleport(pending.target);
-                        PENDING_TELEPORTS.remove(uuid);
-                        return;
-                    }
-
-                    Location current = player.getLocation();
-                    if (!isSameBlock(current, pending.startLocation)) {
-                        pending.cancelled = true;
-                        PENDING_TELEPORTS.remove(uuid);
-                        player.sendMessage(StringUtils.formatToString("&#FF5555Teleport cancelled because you moved."));
-                        return;
-                    }
-
-                    Thread.sleep(200L);
-                }
-            } catch (InterruptedException ignored) {
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(getInstance(), () -> {
+            if (pending.cancelled || !player.isOnline()) {
+                if (pending.warmupTask != null) pending.warmupTask.cancel();
+                PENDING_TELEPORTS.remove(uuid);
+                return;
             }
-        });
+
+            Location current = player.getLocation();
+            if (!isSameBlock(current, pending.startLocation)) {
+                pending.cancelled = true;
+                if (pending.warmupTask != null) pending.warmupTask.cancel();
+                PENDING_TELEPORTS.remove(uuid);
+                player.sendMessage(StringUtils.formatToString("&#FF5555Teleport cancelled because you moved."));
+                return;
+            }
+
+            long elapsed = (System.currentTimeMillis() - pending.startTime) / 1000L;
+            int remaining = pending.warmupSeconds - (int) elapsed;
+
+            if (remaining != pending.lastAnnouncedSeconds && remaining > 0) {
+                pending.lastAnnouncedSeconds = remaining;
+                String msg = StringUtils.formatToString("&#FFAAFFTeleporting in &f" + remaining + " &7seconds. Don't move!");
+                player.sendMessage(msg);
+            }
+
+            if (elapsed >= pending.warmupSeconds) {
+                pending.cancelled = true;
+                if (pending.warmupTask != null) pending.warmupTask.cancel();
+                PENDING_TELEPORTS.remove(uuid);
+                if (!withdraw(player, price)) return;
+                loadChunksAround(pending.target);
+                PaperUtils.teleportAsync(player, pending.target);
+            }
+        }, 10L, 10L);
+
+        pending.warmupTask = task;
+    }
+
+    /**
+     * Loads a 3x3 chunk area around the location so the client receives terrain before teleport
+     * and does not get stuck on "Loading terrain...".
+     */
+    private static void loadChunksAround(@NotNull Location loc) {
+        World world = loc.getWorld();
+        if (world == null) return;
+        int cx = loc.getBlockX() >> 4;
+        int cz = loc.getBlockZ() >> 4;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                world.getChunkAt(cx + dx, cz + dz);
+            }
+        }
     }
 
     private static boolean isSameBlock(@NotNull Location a, @NotNull Location b) {
@@ -374,6 +395,8 @@ public final class GravesGui {
         private final int warmupSeconds;
         private final Location startLocation;
         private volatile boolean cancelled = false;
+        private volatile BukkitTask warmupTask = null;
+        private int lastAnnouncedSeconds = -1;
 
         private PendingTeleport(Location target, double price, long startTime, int warmupSeconds, Location startLocation) {
             this.target = target;
@@ -381,6 +404,7 @@ public final class GravesGui {
             this.startTime = startTime;
             this.warmupSeconds = warmupSeconds;
             this.startLocation = startLocation;
+            this.lastAnnouncedSeconds = warmupSeconds;
         }
     }
 }
